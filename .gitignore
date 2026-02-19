@@ -1,0 +1,12 @@
+# 認証情報・設定ファイル
+.whtwnd_config.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+*.egg-info/
+dist/
+build/

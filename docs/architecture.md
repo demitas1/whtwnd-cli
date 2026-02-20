@@ -2,7 +2,7 @@
 
 ## プロジェクト概要
 
-**whtwnd-cli** — CLIからWhiteWind（whtwnd.com）にMarkdown記事を投稿するPythonツール。
+**whtwnd-cli** — CLIからWhiteWind（whtwnd.com）にMarkdown記事を投稿し、Blueskyにスキートを投稿するPythonツール群。
 
 WhiteWindはBluesky/AT Protocolベースのブログサービス。記事はユーザー自身のPDS（Personal Data Server）に `com.whtwnd.blog.entry` コレクションのレコードとして保存される。
 
@@ -12,6 +12,7 @@ WhiteWindはBluesky/AT Protocolベースのブログサービス。記事はユ�
 
 ```
 whtwnd-cli/
+  atproto.py            # ★ 共通モジュール: AT Protocol 基本操作
   whtwnd_post.py        # WhiteWind 投稿スクリプト
   bsky_post.py          # Bluesky スキート投稿スクリプト
   requirements.txt      # 依存パッケージ（requests のみ）
@@ -27,44 +28,59 @@ whtwnd-cli/
 
 ---
 
-## 現在の実装（whtwnd_post.py）
+## モジュール設計
 
-### 処理フロー
+### 依存関係
 
 ```
-CLIコマンド
-    │
-    ├─ post コマンド
-    │     1. 設定ファイル読み込み（load_config）
-    │     2. ATProto 認証（create_session）
-    │     3. Markdown 読み込み・H1タイトル抽出
-    │     4. ローカル画像を検出 → PDS に uploadBlob → URL 置換
-    │        （process_markdown_images）
-    │     5. com.whtwnd.blog.entry レコード作成（post_entry）
-    │     6. WhiteWind AppView に通知（notify_whitewind）
-    │
-    └─ list コマンド
-          1. 設定ファイル読み込み
-          2. ATProto 認証
-          3. com.atproto.repo.listRecords で一覧取得・表示
+whtwnd_post.py ──┐
+                 ├──→ atproto.py  （共通: 認証・設定・blob操作）
+bsky_post.py  ──┘
 ```
 
-### 主要関数
+### atproto.py（共通モジュール）
 
-| 関数 | 役割 |
+両スクリプトで重複していたコードを集約する。
+
+| 要素 | 内容 |
 |---|---|
-| `load_config()` | カレントディレクトリ優先で設定ファイルを読み込む |
-| `create_session()` | `com.atproto.server.createSession` でアクセストークン取得 |
-| `upload_blob()` | `com.atproto.repo.uploadBlob` で画像をPDSにアップロード |
+| `PDS_HOST` | `"https://bsky.social"`（定数） |
+| `_LOCAL_CONFIG` | `Path(".bsky_config.json")`（カレントディレクトリ） |
+| `_HOME_CONFIG` | `Path.home() / ".bsky_config.json"` |
+| `load_config()` | 設定ファイルを読み込む（カレントディレクトリ優先） |
+| `create_session()` | `com.atproto.server.createSession` で認証 |
+| `upload_blob()` | `com.atproto.repo.uploadBlob` で画像アップロード |
 | `blob_to_public_url()` | blob CIDをPDS経由の公開URLに変換 |
-| `process_markdown_images()` | Markdown内のローカル画像を検出・アップロード・URL置換 |
-| `post_entry()` | `com.atproto.repo.createRecord` でレコード作成 |
-| `notify_whitewind()` | `com.whtwnd.blog.notifyOfNewEntry` でAppViewに通知（失敗しても非致命的） |
-| `list_entries()` | `com.atproto.repo.listRecords` で一覧取得・表示 |
+| `resolve_handle_to_did()` | ハンドルをDIDに解決 |
 
-### 設定ファイル
+### whtwnd_post.py（WhiteWind 固有）
 
-`~/.whtwnd_config.json` または実行ディレクトリの `.whtwnd_config.json`（カレントディレクトリ優先）:
+`atproto` をインポートして認証・blob操作を委譲する。
+
+| 関数 | 内容 |
+|---|---|
+| `process_markdown_images()` | Markdown内ローカル画像を検出・アップロード・URL置換 |
+| `post_entry()` | `com.atproto.repo.createRecord` で WhiteWind 記事を作成 |
+| `notify_whitewind()` | AppViewに通知（失敗しても非致命的） |
+| `entry_url()` | WhiteWind 記事URLを生成 |
+| `list_entries()` | 記事一覧を取得・表示 |
+
+### bsky_post.py（Bluesky 固有）
+
+`atproto` をインポートして認証・blob操作・DID解決を委譲する。
+
+| 関数 | 内容 |
+|---|---|
+| `detect_facets()` | URL・@メンション・#ハッシュタグをバイト位置で検出 |
+| `post_skeet()` | `com.atproto.repo.createRecord` でスキートを作成 |
+
+---
+
+## 設定ファイル
+
+**ファイル名:** `.bsky_config.json`（旧: `.whtwnd_config.json`）
+
+カレントディレクトリのファイルを優先し、なければホームディレクトリを参照する。
 
 ```json
 {
@@ -75,9 +91,35 @@ CLIコマンド
 
 パスワードはBlueskyの**アプリパスワード**を使用する（メインパスワードは不可）。
 
-### 依存ライブラリ
+`.gitignore` にも `.bsky_config.json` を追加する。
 
-- `requests` のみ（標準ライブラリ以外）
+---
+
+## 処理フロー
+
+### whtwnd_post.py post コマンド
+
+```
+1. atproto.load_config()
+2. atproto.create_session()
+3. Markdown 読み込み・H1タイトル抽出
+4. process_markdown_images()
+     └─ atproto.upload_blob() × 画像数
+5. post_entry()
+6. notify_whitewind()
+```
+
+### bsky_post.py post コマンド
+
+```
+1. atproto.load_config()
+2. atproto.create_session()
+3. テキスト取得（引数 / ファイル / stdin）
+4. detect_facets()
+     └─ atproto.resolve_handle_to_did() × @メンション数
+5. (画像があれば) atproto.upload_blob() × 枚数
+6. post_skeet()
+```
 
 ---
 
@@ -91,7 +133,7 @@ CLIコマンド
 | 記事投稿 | ✅ 正常 | 公開設定・タイトル自動抽出も動作 |
 | 記事一覧 | ✅ 正常 | |
 | ローカル画像アップロード | ✅ 実装済み（未テスト） | |
-| WhiteWind 通知 | ⚠️ 常に失敗 | WhiteWind 側の CloudFront が POST を拒否している。WhiteWind がリレーの firehose 経由で自動検出するため実害なし |
+| WhiteWind 通知 | ⚠️ 常に失敗 | WhiteWind 側の CloudFront が POST を拒否している。firehose 経由で自動検出されるため実害なし |
 
 ### bsky_post.py（2026-02-20）
 
@@ -179,7 +221,7 @@ python whtwnd_post.py config --handle yourname.bsky.social --password xxxx
 python whtwnd_post.py config --show
 ```
 
-対話的に `~/.whtwnd_config.json` を作成・更新できるようにする。
+対話的に `.bsky_config.json` を作成・更新できるようにする。
 
 #### 2-3. プレビュー機能
 
@@ -208,14 +250,14 @@ python whtwnd_post.py preview article.md
 ```
 whtwnd-cli/
   src/
-    whtwnd_cli/
+    bsky_cli/
       __init__.py
-      main.py       # argparse、サブコマンドのエントリーポイント
-      auth.py       # セッション管理
-      upload.py     # blob アップロード
-      markdown.py   # Markdown処理、画像置換
-      api.py        # AT Protocol / WhiteWind API呼び出し
-      config.py     # 設定ファイル管理
+      main_whtwnd.py    # whtwnd サブコマンドのエントリーポイント
+      main_bsky.py      # bsky サブコマンドのエントリーポイント
+      atproto.py        # 共通: 認証・設定・blob操作
+      whtwnd.py         # WhiteWind 固有ロジック
+      bsky.py           # Bluesky 固有ロジック
+      markdown.py       # Markdown処理、画像置換
   tests/
   pyproject.toml
   requirements.txt
@@ -238,17 +280,18 @@ whtwnd-cli/
 |---|---|---|
 | `com.atproto.server.createSession` | POST | 認証・アクセストークン取得 |
 | `com.atproto.repo.uploadBlob` | POST | 画像アップロード |
-| `com.atproto.repo.createRecord` | POST | レコード（記事）作成 |
-| `com.atproto.repo.putRecord` | POST | レコード（記事）更新（未実装） |
-| `com.atproto.repo.deleteRecord` | POST | レコード（記事）削除（未実装） |
+| `com.atproto.repo.createRecord` | POST | レコード作成（記事・スキート） |
+| `com.atproto.repo.putRecord` | POST | レコード更新（未実装） |
+| `com.atproto.repo.deleteRecord` | POST | レコード削除（未実装） |
 | `com.atproto.repo.listRecords` | GET | レコード一覧取得 |
+| `com.atproto.identity.resolveHandle` | GET | ハンドル→DID解決 |
 | `com.whtwnd.blog.getEntryMetadataByName` | GET | タイトルからAT URI取得（未実装） |
 | `com.whtwnd.blog.notifyOfNewEntry` | POST | AppViewへの通知（常に失敗・無害） |
 
 ### PDS ホスト
 
 デフォルト: `https://bsky.social`
-セルフホストPDSの場合は `whtwnd_post.py` の `PDS_HOST` 定数を変更する。
+セルフホストPDSの場合は `atproto.py` の `PDS_HOST` 定数を変更する。
 
 ### com.whtwnd.blog.entry レコードスキーマ
 
@@ -263,5 +306,30 @@ whtwnd-cli/
   "blobs": [
     { "blobref": "<uploadBlobのレスポンス>", "name": "filename.png" }
   ]
+}
+```
+
+### app.bsky.feed.post レコードスキーマ
+
+```json
+{
+  "$type": "app.bsky.feed.post",
+  "text": "string (必須, 最大300 grapheme)",
+  "createdAt": "ISO 8601 datetime",
+  "langs": ["ja"],
+  "facets": [
+    {
+      "index": { "byteStart": 0, "byteEnd": 10 },
+      "features": [
+        { "$type": "app.bsky.richtext.facet#link", "uri": "https://..." }
+      ]
+    }
+  ],
+  "embed": {
+    "$type": "app.bsky.embed.images",
+    "images": [
+      { "image": "<blob>", "alt": "" }
+    ]
+  }
 }
 ```

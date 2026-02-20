@@ -7,7 +7,7 @@ bsky_post.py - CLIからBlueskyにスキートを投稿するスクリプト
   python bsky_post.py post "テキスト" --image photo.jpg
   python bsky_post.py post --file message.txt
 
-設定 (.whtwnd_config.json または ~/.whtwnd_config.json):
+設定 (.bsky_config.json または ~/.bsky_config.json):
   {
     "handle": "yourname.bsky.social",
     "password": "your-app-password"
@@ -20,117 +20,21 @@ Bluesky の仕様:
 """
 
 import argparse
-import json
-import mimetypes
 import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-try:
-    import requests
-except ImportError:
-    print("requests が必要です: pip install requests")
-    sys.exit(1)
+import requests
 
-PDS_HOST = "https://bsky.social"
-
-# 設定ファイル: カレントディレクトリ優先、なければホーム
-_LOCAL_CONFIG = Path(".whtwnd_config.json")
-_HOME_CONFIG = Path.home() / ".whtwnd_config.json"
+import atproto
 
 MAX_GRAPHEMES = 300  # Bluesky の投稿文字数上限
 
 
 # ──────────────────────────────────────────────
-# 設定読み込み
-# ──────────────────────────────────────────────
-
-def load_config() -> dict:
-    config_path = _LOCAL_CONFIG if _LOCAL_CONFIG.exists() else _HOME_CONFIG
-    if not config_path.exists():
-        print("設定ファイルが見つかりません。")
-        print("以下のいずれかに作成してください:")
-        print(f"  {_LOCAL_CONFIG.resolve()}")
-        print(f"  {_HOME_CONFIG}")
-        print("内容:")
-        print(json.dumps(
-            {"handle": "yourname.bsky.social", "password": "your-app-password"},
-            ensure_ascii=False, indent=2,
-        ))
-        sys.exit(1)
-    with open(config_path) as f:
-        return json.load(f)
-
-
-# ──────────────────────────────────────────────
-# AT Protocol 認証
-# ──────────────────────────────────────────────
-
-def create_session(handle: str, password: str) -> dict:
-    """Bluesky セッションを作成してアクセストークンとDIDを返す"""
-    resp = requests.post(
-        f"{PDS_HOST}/xrpc/com.atproto.server.createSession",
-        json={"identifier": handle, "password": password},
-        timeout=15,
-    )
-    if resp.status_code == 401:
-        print("ログイン失敗: ハンドルまたはアプリパスワードが正しくありません")
-        sys.exit(1)
-    if not resp.ok:
-        print(f"ログイン失敗: {resp.status_code} {resp.text}")
-        sys.exit(1)
-    data = resp.json()
-    print(f"✓ ログイン成功: {data['handle']}")
-    return data
-
-
-# ──────────────────────────────────────────────
-# 画像アップロード
-# ──────────────────────────────────────────────
-
-def upload_image(session: dict, file_path: Path) -> dict:
-    """画像をPDSにアップロードして blob オブジェクトを返す"""
-    mime_type, _ = mimetypes.guess_type(str(file_path))
-    if mime_type is None:
-        mime_type = "application/octet-stream"
-
-    with open(file_path, "rb") as f:
-        data = f.read()
-
-    resp = requests.post(
-        f"{PDS_HOST}/xrpc/com.atproto.repo.uploadBlob",
-        headers={
-            "Authorization": f"Bearer {session['accessJwt']}",
-            "Content-Type": mime_type,
-        },
-        data=data,
-        timeout=60,
-    )
-    if not resp.ok:
-        print(f"画像アップロード失敗 ({file_path.name}): {resp.status_code} {resp.text}")
-        sys.exit(1)
-
-    blob = resp.json()["blob"]
-    print(f"  ✓ アップロード完了: {file_path.name}")
-    return blob
-
-
-# ──────────────────────────────────────────────
 # Facet 検出（リッチテキスト）
 # ──────────────────────────────────────────────
-
-def resolve_handle_to_did(handle: str) -> str | None:
-    """ハンドルをDIDに解決する。失敗時はNoneを返す"""
-    resp = requests.get(
-        f"{PDS_HOST}/xrpc/com.atproto.identity.resolveHandle",
-        params={"handle": handle},
-        timeout=10,
-    )
-    if resp.ok:
-        return resp.json().get("did")
-    return None
-
 
 def detect_facets(text: str) -> list:
     """
@@ -155,13 +59,13 @@ def detect_facets(text: str) -> list:
 
     # @メンション: @handle.domain 形式
     mention_re = re.compile(
-        r'(?<![a-zA-Z0-9])'          # 直前がアルファベット・数字でない
+        r'(?<![a-zA-Z0-9])'
         r'@([a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?'
         r'(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+)'
     )
     for m in mention_re.finditer(text):
         handle = m.group(1)
-        did = resolve_handle_to_did(handle)
+        did = atproto.resolve_handle_to_did(handle)
         if did is None:
             continue  # 解決できないハンドルはスキップ
         byte_start = len(text[:m.start()].encode("UTF-8"))
@@ -214,7 +118,7 @@ def post_skeet(
     if images:
         embed_images = []
         for img_path in images[:4]:
-            blob = upload_image(session, img_path)
+            blob = atproto.upload_blob(session, img_path)
             embed_images.append({
                 "image": blob,
                 "alt": "",  # alt テキストは空（指定する場合は --alt オプションを追加）
@@ -225,7 +129,7 @@ def post_skeet(
         }
 
     resp = requests.post(
-        f"{PDS_HOST}/xrpc/com.atproto.repo.createRecord",
+        f"{atproto.PDS_HOST}/xrpc/com.atproto.repo.createRecord",
         headers={"Authorization": f"Bearer {session['accessJwt']}"},
         json={
             "repo": session["did"],
@@ -287,8 +191,8 @@ def cmd_post(args):
 
     langs = args.lang if args.lang else None
 
-    config = load_config()
-    session = create_session(config["handle"], config["password"])
+    config = atproto.load_config()
+    session = atproto.create_session(config["handle"], config["password"])
 
     print("\n[スキートの投稿]")
     at_uri = post_skeet(session, text, images=images or None, langs=langs)

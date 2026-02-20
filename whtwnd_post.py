@@ -8,7 +8,7 @@ whtwnd_post.py - CLIからWhiteWindにMarkdown記事を投稿するスクリプ�
   python whtwnd_post.py post article.md --title "タイトル" --draft
   python whtwnd_post.py list   # 投稿済み記事一覧
 
-設定 (~/.whtwnd_config.json):
+設定 (.bsky_config.json または ~/.bsky_config.json):
   {
     "handle": "yourname.bsky.social",
     "password": "your-app-password"
@@ -23,100 +23,12 @@ Markdownの画像について:
 """
 
 import argparse
-import json
-import mimetypes
-import os
 import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-try:
-    import requests
-except ImportError:
-    print("requests が必要です: pip install requests")
-    sys.exit(1)
-
-# ──────────────────────────────────────────────
-# 設定読み込み
-# ──────────────────────────────────────────────
-
-PDS_HOST = "https://bsky.social"  # セルフホストPDSの場合はここを変更
-
-# カレントディレクトリのファイルを優先し、なければホームディレクトリを参照
-_LOCAL_CONFIG = Path(".whtwnd_config.json")
-_HOME_CONFIG = Path.home() / ".whtwnd_config.json"
-
-
-def load_config() -> dict:
-    config_path = _LOCAL_CONFIG if _LOCAL_CONFIG.exists() else _HOME_CONFIG
-    if not config_path.exists():
-        print(f"設定ファイルが見つかりません。")
-        print(f"以下のいずれかに作成してください:")
-        print(f"  {_LOCAL_CONFIG.resolve()}")
-        print(f"  {_HOME_CONFIG}")
-        print("内容:")
-        print(json.dumps({"handle": "yourname.bsky.social", "password": "your-app-password"}, ensure_ascii=False, indent=2))
-        sys.exit(1)
-    with open(config_path) as f:
-        return json.load(f)
-
-
-# ──────────────────────────────────────────────
-# AT Protocol 認証
-# ──────────────────────────────────────────────
-
-def create_session(handle: str, password: str) -> dict:
-    """Bluesky/ATProto セッションを作成してアクセストークンとDIDを返す"""
-    resp = requests.post(
-        f"{PDS_HOST}/xrpc/com.atproto.server.createSession",
-        json={"identifier": handle, "password": password},
-        timeout=15,
-    )
-    if not resp.ok:
-        print(f"ログイン失敗: {resp.status_code} {resp.text}")
-        sys.exit(1)
-    data = resp.json()
-    print(f"✓ ログイン成功: {data['handle']} (DID: {data['did']})")
-    return data  # .accessJwt, .did, .handle, .didDoc
-
-
-# ──────────────────────────────────────────────
-# 画像アップロード
-# ──────────────────────────────────────────────
-
-def upload_blob(session: dict, file_path: Path) -> dict:
-    """ローカル画像をPDSにアップロードしてblobオブジェクトを返す"""
-    mime_type, _ = mimetypes.guess_type(str(file_path))
-    if mime_type is None:
-        mime_type = "application/octet-stream"
-
-    with open(file_path, "rb") as f:
-        data = f.read()
-
-    resp = requests.post(
-        f"{PDS_HOST}/xrpc/com.atproto.repo.uploadBlob",
-        headers={
-            "Authorization": f"Bearer {session['accessJwt']}",
-            "Content-Type": mime_type,
-        },
-        data=data,
-        timeout=60,
-    )
-    if not resp.ok:
-        print(f"画像アップロード失敗 ({file_path.name}): {resp.status_code} {resp.text}")
-        sys.exit(1)
-
-    blob = resp.json()["blob"]
-    cid = blob["ref"]["$link"]
-    print(f"  ✓ アップロード完了: {file_path.name} → CID: {cid[:16]}…")
-    return blob
-
-
-def blob_to_public_url(did: str, cid: str) -> str:
-    """blob CIDをPDS経由の公開URLに変換する"""
-    return f"{PDS_HOST}/xrpc/com.atproto.sync.getBlob?did={did}&cid={cid}"
-
+import atproto
 
 # ──────────────────────────────────────────────
 # Markdown 処理 (画像パスの置換)
@@ -133,7 +45,6 @@ def process_markdown_images(content: str, md_dir: Path, session: dict) -> tuple[
     blobs = []
     uploaded_cache = {}  # 同じファイルを重複アップロードしないキャッシュ
 
-    # ![alt](path) にマッチ (URLでないもの)
     pattern = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
 
     def replace_image(match):
@@ -154,16 +65,11 @@ def process_markdown_images(content: str, md_dir: Path, session: dict) -> tuple[
         if path_key in uploaded_cache:
             blob_obj, public_url = uploaded_cache[path_key]
         else:
-            blob_obj = upload_blob(session, img_path)
+            blob_obj = atproto.upload_blob(session, img_path)
             cid = blob_obj["ref"]["$link"]
-            public_url = blob_to_public_url(session["did"], cid)
+            public_url = atproto.blob_to_public_url(session["did"], cid)
             uploaded_cache[path_key] = (blob_obj, public_url)
-
-            # blobsリストに追加
-            blobs.append({
-                "blobref": blob_obj,
-                "name": img_path.name,
-            })
+            blobs.append({"blobref": blob_obj, "name": img_path.name})
 
         return f"![{alt}]({public_url})"
 
@@ -178,6 +84,7 @@ def process_markdown_images(content: str, md_dir: Path, session: dict) -> tuple[
 def post_entry(session: dict, title: str, content: str, blobs: list,
                visibility: str = "public", draft: bool = False) -> str:
     """com.whtwnd.blog.entry レコードを作成してAT URIを返す"""
+    import requests
 
     record = {
         "$type": "com.whtwnd.blog.entry",
@@ -192,7 +99,7 @@ def post_entry(session: dict, title: str, content: str, blobs: list,
         record["blobs"] = blobs
 
     resp = requests.post(
-        f"{PDS_HOST}/xrpc/com.atproto.repo.createRecord",
+        f"{atproto.PDS_HOST}/xrpc/com.atproto.repo.createRecord",
         headers={"Authorization": f"Bearer {session['accessJwt']}"},
         json={
             "repo": session["did"],
@@ -205,14 +112,15 @@ def post_entry(session: dict, title: str, content: str, blobs: list,
         print(f"レコード作成失敗: {resp.status_code} {resp.text}")
         sys.exit(1)
 
-    result = resp.json()
-    at_uri = result["uri"]
+    at_uri = resp.json()["uri"]
     print(f"✓ レコード作成成功: {at_uri}")
     return at_uri
 
 
 def notify_whitewind(session: dict, at_uri: str):
     """WhiteWind AppViewにインデックスを依頼する"""
+    import requests
+
     resp = requests.post(
         "https://whtwnd.com/xrpc/com.whtwnd.blog.notifyOfNewEntry",
         headers={
@@ -231,7 +139,6 @@ def notify_whitewind(session: dict, at_uri: str):
 
 def entry_url(handle: str, at_uri: str, title: str) -> str:
     """記事のWhiteWind URLを生成する"""
-    # AT URI例: at://did:plc:xxx/com.whtwnd.blog.entry/rkey
     rkey = at_uri.split("/")[-1]
     if title:
         safe_title = title.replace(" ", "%20")
@@ -245,8 +152,10 @@ def entry_url(handle: str, at_uri: str, title: str) -> str:
 
 def list_entries(session: dict):
     """投稿済み記事の一覧を表示する"""
+    import requests
+
     resp = requests.get(
-        f"{PDS_HOST}/xrpc/com.atproto.repo.listRecords",
+        f"{atproto.PDS_HOST}/xrpc/com.atproto.repo.listRecords",
         params={
             "repo": session["did"],
             "collection": "com.whtwnd.blog.entry",
@@ -278,12 +187,12 @@ def list_entries(session: dict):
 
 
 # ──────────────────────────────────────────────
-# メイン
+# サブコマンド
 # ──────────────────────────────────────────────
 
 def cmd_post(args):
-    config = load_config()
-    session = create_session(config["handle"], config["password"])
+    config = atproto.load_config()
+    session = atproto.create_session(config["handle"], config["password"])
 
     md_file = Path(args.file)
     if not md_file.exists():
@@ -337,10 +246,14 @@ def cmd_post(args):
 
 
 def cmd_list(args):
-    config = load_config()
-    session = create_session(config["handle"], config["password"])
+    config = atproto.load_config()
+    session = atproto.create_session(config["handle"], config["password"])
     list_entries(session)
 
+
+# ──────────────────────────────────────────────
+# メイン
+# ──────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(
@@ -363,7 +276,7 @@ def main():
   # 記事一覧
   python whtwnd_post.py list
 
-設定ファイル (~/.whtwnd_config.json):
+設定ファイル (.bsky_config.json または ~/.bsky_config.json):
   {
     "handle": "yourname.bsky.social",
     "password": "アプリパスワード"

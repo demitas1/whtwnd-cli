@@ -1,5 +1,5 @@
 # 認証情報・設定ファイル
-.whtwnd_config.json
+.bsky_config.json
 
 # Python
 __pycache__/

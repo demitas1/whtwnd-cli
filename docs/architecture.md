@@ -179,15 +179,13 @@ bsky_post.py  ──┘
 - `upload_blob` 失敗時に孤立 blob は PDS の GC で自動削除される旨を表示
 - `post_entry` が RuntimeError を送出する設計に変更し、`cmd_post` で blob 孤立警告を表示
 
-#### 1-2. 記事の更新（put）
+#### ~~1-2. 記事の更新（put）~~ ✅ 完了（2026-02-20）
 
-```
-python whtwnd_post.py update <rkey_or_url> article.md
-python whtwnd_post.py update --title "既存タイトル" article.md
-```
-
-- `com.atproto.repo.putRecord` を使用（rkey指定が必要）
-- `--title` 指定時は `com.whtwnd.blog.getEntryMetadataByName` でAT URIを取得してrkeyを取り出す
+- `update` サブコマンドを実装（`com.atproto.repo.putRecord` を使用）
+- rkey / AT URI の直接指定に対応
+- `--title` 指定時は PDS の `listRecords` を全件検索してタイトルが一致する rkey を取得
+  - WhiteWind の `getEntryMetadataByName` は CloudFront/Next.js に吸収されて 500 を返すため PDS 直接検索に変更
+- `update_entry()` は失敗時に RuntimeError を送出し `cmd_update` でblobの孤立警告を表示
 
 #### 1-3. 記事の削除
 

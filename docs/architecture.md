@@ -187,15 +187,11 @@ bsky_post.py  ──┘
   - WhiteWind の `getEntryMetadataByName` は CloudFront/Next.js に吸収されて 500 を返すため PDS 直接検索に変更
 - `update_entry()` は失敗時に RuntimeError を送出し `cmd_update` でblobの孤立警告を表示
 
-#### 1-3. 記事の削除
+#### ~~1-3. 記事の削除~~ ✅ 完了（2026-02-20）
 
-```
-python whtwnd_post.py delete <rkey_or_url>
-python whtwnd_post.py delete --title "記事タイトル"
-```
-
-- `com.atproto.repo.deleteRecord` を使用
-- 削除前に確認プロンプト（`--yes` / `-y` フラグで省略可）
+- `delete` サブコマンドを実装（`com.atproto.repo.deleteRecord` を使用）
+- rkey / AT URI の直接指定と `--title` 指定に対応（`find_rkey_by_title` を共用）
+- 削除前に確認プロンプトを表示し、`--yes` / `-y` フラグで省略可能
 
 ---
 

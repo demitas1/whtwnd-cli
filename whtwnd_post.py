@@ -427,6 +427,48 @@ def cmd_update(args):
     print(f"{'='*50}\n")
 
 
+def cmd_delete(args):
+    config = atproto.load_config()
+    session = atproto.create_session(config["handle"], config["password"])
+
+    # rkey の解決
+    try:
+        rkey = resolve_rkey(session, args.target, args.title)
+    except RuntimeError as e:
+        print(f"エラー: {e}")
+        sys.exit(1)
+
+    # 削除前確認
+    if not args.yes:
+        print(f"以下の記事を削除します:")
+        print(f"  rkey: {rkey}")
+        print(f"  AT URI: at://{session['did']}/com.whtwnd.blog.entry/{rkey}")
+        answer = input("削除してよいですか？ [y/N]: ").strip().lower()
+        if answer not in ("y", "yes"):
+            print("削除をキャンセルしました。")
+            sys.exit(0)
+
+    resp = atproto.api_request(
+        "POST",
+        f"{atproto.PDS_HOST}/xrpc/com.atproto.repo.deleteRecord",
+        headers={"Authorization": f"Bearer {session['accessJwt']}"},
+        json={
+            "repo": session["did"],
+            "collection": "com.whtwnd.blog.entry",
+            "rkey": rkey,
+        },
+        timeout=15,
+    )
+    if resp.status_code == 401:
+        print("削除失敗: 認証トークンが無効です。再ログインしてください。")
+        sys.exit(1)
+    if not resp.ok:
+        print(f"削除失敗: {resp.status_code} {resp.text}")
+        sys.exit(1)
+
+    print(f"✓ 削除完了: {rkey}")
+
+
 def cmd_list(args):
     config = atproto.load_config()
     session = atproto.create_session(config["handle"], config["password"])
@@ -498,6 +540,13 @@ def main():
     p_update.add_argument("--draft", "-d", action="store_true", help="下書きとして保存")
     p_update.add_argument("--no-images", action="store_true", help="画像アップロードをスキップ")
     p_update.set_defaults(func=cmd_update)
+
+    # delete サブコマンド
+    p_delete = sub.add_parser("delete", help="記事を削除")
+    p_delete.add_argument("target", nargs="?", help="rkey または AT URI（--title 指定時は省略可）")
+    p_delete.add_argument("--title", "-t", help="削除対象をタイトルで指定")
+    p_delete.add_argument("--yes", "-y", action="store_true", help="確認プロンプトをスキップ")
+    p_delete.set_defaults(func=cmd_delete)
 
     # list サブコマンド
     p_list = sub.add_parser("list", help="投稿済み記事の一覧を表示")

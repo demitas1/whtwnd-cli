@@ -30,6 +30,7 @@ from pathlib import Path
 
 import atproto
 
+
 # ──────────────────────────────────────────────
 # Markdown 処理 (画像パスの置換)
 # ──────────────────────────────────────────────
@@ -83,9 +84,10 @@ def process_markdown_images(content: str, md_dir: Path, session: dict) -> tuple[
 
 def post_entry(session: dict, title: str, content: str, blobs: list,
                visibility: str = "public", draft: bool = False) -> str:
-    """com.whtwnd.blog.entry レコードを作成してAT URIを返す"""
-    import requests
-
+    """
+    com.whtwnd.blog.entry レコードを作成してAT URIを返す。
+    失敗時は RuntimeError を送出する。
+    """
     record = {
         "$type": "com.whtwnd.blog.entry",
         "content": content,
@@ -98,7 +100,8 @@ def post_entry(session: dict, title: str, content: str, blobs: list,
     if blobs:
         record["blobs"] = blobs
 
-    resp = requests.post(
+    resp = atproto.api_request(
+        "POST",
         f"{atproto.PDS_HOST}/xrpc/com.atproto.repo.createRecord",
         headers={"Authorization": f"Bearer {session['accessJwt']}"},
         json={
@@ -108,9 +111,12 @@ def post_entry(session: dict, title: str, content: str, blobs: list,
         },
         timeout=15,
     )
+    if resp.status_code == 400:
+        raise RuntimeError(f"レコード作成失敗: リクエストが不正です ({resp.text})")
+    if resp.status_code == 401:
+        raise RuntimeError("レコード作成失敗: 認証トークンが無効です。再ログインしてください。")
     if not resp.ok:
-        print(f"レコード作成失敗: {resp.status_code} {resp.text}")
-        sys.exit(1)
+        raise RuntimeError(f"レコード作成失敗: {resp.status_code} {resp.text}")
 
     at_uri = resp.json()["uri"]
     print(f"✓ レコード作成成功: {at_uri}")
@@ -119,9 +125,8 @@ def post_entry(session: dict, title: str, content: str, blobs: list,
 
 def notify_whitewind(session: dict, at_uri: str):
     """WhiteWind AppViewにインデックスを依頼する"""
-    import requests
-
-    resp = requests.post(
+    resp = atproto.api_request(
+        "POST",
         "https://whtwnd.com/xrpc/com.whtwnd.blog.notifyOfNewEntry",
         headers={
             "Authorization": f"Bearer {session['accessJwt']}",
@@ -152,9 +157,8 @@ def entry_url(handle: str, at_uri: str, title: str) -> str:
 
 def list_entries(session: dict):
     """投稿済み記事の一覧を表示する"""
-    import requests
-
-    resp = requests.get(
+    resp = atproto.api_request(
+        "GET",
         f"{atproto.PDS_HOST}/xrpc/com.atproto.repo.listRecords",
         params={
             "repo": session["did"],
@@ -164,8 +168,11 @@ def list_entries(session: dict):
         headers={"Authorization": f"Bearer {session['accessJwt']}"},
         timeout=15,
     )
+    if resp.status_code == 401:
+        print("一覧取得失敗: 認証トークンが無効です。再ログインしてください。")
+        sys.exit(1)
     if not resp.ok:
-        print(f"一覧取得失敗: {resp.status_code}")
+        print(f"一覧取得失敗: {resp.status_code} {resp.text}")
         sys.exit(1)
 
     records = resp.json().get("records", [])
@@ -211,24 +218,32 @@ def cmd_post(args):
 
     # 画像処理
     print("\n[画像のアップロード]")
+    blobs: list = []
     if not args.no_images:
         content, blobs = process_markdown_images(raw_content, md_file.parent, session)
         if not blobs:
             print("  (ローカル画像なし)")
     else:
-        content, blobs = raw_content, []
+        content = raw_content
         print("  (--no-images: スキップ)")
 
     # 記事投稿
     print("\n[記事の投稿]")
-    at_uri = post_entry(
-        session,
-        title=title or md_file.stem,
-        content=content,
-        blobs=blobs,
-        visibility=args.visibility,
-        draft=args.draft,
-    )
+    try:
+        at_uri = post_entry(
+            session,
+            title=title or md_file.stem,
+            content=content,
+            blobs=blobs,
+            visibility=args.visibility,
+            draft=args.draft,
+        )
+    except RuntimeError as e:
+        print(f"エラー: {e}")
+        if blobs:
+            print("  ⚠ 画像はアップロード済みですが、記事の作成に失敗しました。")
+            print("    アップロード済みの画像はPDSのGCにより自動削除されます。")
+        sys.exit(1)
 
     # WhiteWind通知
     notify_whitewind(session, at_uri)

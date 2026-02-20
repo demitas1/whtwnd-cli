@@ -30,6 +30,7 @@ from pathlib import Path
 
 import atproto
 
+
 # ──────────────────────────────────────────────
 # Markdown 処理 (画像パスの置換)
 # ──────────────────────────────────────────────
@@ -83,9 +84,10 @@ def process_markdown_images(content: str, md_dir: Path, session: dict) -> tuple[
 
 def post_entry(session: dict, title: str, content: str, blobs: list,
                visibility: str = "public", draft: bool = False) -> str:
-    """com.whtwnd.blog.entry レコードを作成してAT URIを返す"""
-    import requests
-
+    """
+    com.whtwnd.blog.entry レコードを作成してAT URIを返す。
+    失敗時は RuntimeError を送出する。
+    """
     record = {
         "$type": "com.whtwnd.blog.entry",
         "content": content,
@@ -98,7 +100,8 @@ def post_entry(session: dict, title: str, content: str, blobs: list,
     if blobs:
         record["blobs"] = blobs
 
-    resp = requests.post(
+    resp = atproto.api_request(
+        "POST",
         f"{atproto.PDS_HOST}/xrpc/com.atproto.repo.createRecord",
         headers={"Authorization": f"Bearer {session['accessJwt']}"},
         json={
@@ -108,20 +111,64 @@ def post_entry(session: dict, title: str, content: str, blobs: list,
         },
         timeout=15,
     )
+    if resp.status_code == 400:
+        raise RuntimeError(f"レコード作成失敗: リクエストが不正です ({resp.text})")
+    if resp.status_code == 401:
+        raise RuntimeError("レコード作成失敗: 認証トークンが無効です。再ログインしてください。")
     if not resp.ok:
-        print(f"レコード作成失敗: {resp.status_code} {resp.text}")
-        sys.exit(1)
+        raise RuntimeError(f"レコード作成失敗: {resp.status_code} {resp.text}")
 
     at_uri = resp.json()["uri"]
     print(f"✓ レコード作成成功: {at_uri}")
     return at_uri
 
 
+def update_entry(session: dict, rkey: str, title: str, content: str, blobs: list,
+                 visibility: str = "public", draft: bool = False) -> str:
+    """
+    com.whtwnd.blog.entry レコードを更新してAT URIを返す。
+    失敗時は RuntimeError を送出する。
+    """
+    record = {
+        "$type": "com.whtwnd.blog.entry",
+        "content": content,
+        "createdAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        "visibility": "author" if draft else visibility,
+        "theme": "github-light",
+    }
+    if title:
+        record["title"] = title
+    if blobs:
+        record["blobs"] = blobs
+
+    resp = atproto.api_request(
+        "POST",
+        f"{atproto.PDS_HOST}/xrpc/com.atproto.repo.putRecord",
+        headers={"Authorization": f"Bearer {session['accessJwt']}"},
+        json={
+            "repo": session["did"],
+            "collection": "com.whtwnd.blog.entry",
+            "rkey": rkey,
+            "record": record,
+        },
+        timeout=15,
+    )
+    if resp.status_code == 400:
+        raise RuntimeError(f"レコード更新失敗: リクエストが不正です ({resp.text})")
+    if resp.status_code == 401:
+        raise RuntimeError("レコード更新失敗: 認証トークンが無効です。再ログインしてください。")
+    if not resp.ok:
+        raise RuntimeError(f"レコード更新失敗: {resp.status_code} {resp.text}")
+
+    at_uri = resp.json()["uri"]
+    print(f"✓ レコード更新成功: {at_uri}")
+    return at_uri
+
+
 def notify_whitewind(session: dict, at_uri: str):
     """WhiteWind AppViewにインデックスを依頼する"""
-    import requests
-
-    resp = requests.post(
+    resp = atproto.api_request(
+        "POST",
         "https://whtwnd.com/xrpc/com.whtwnd.blog.notifyOfNewEntry",
         headers={
             "Authorization": f"Bearer {session['accessJwt']}",
@@ -152,9 +199,8 @@ def entry_url(handle: str, at_uri: str, title: str) -> str:
 
 def list_entries(session: dict):
     """投稿済み記事の一覧を表示する"""
-    import requests
-
-    resp = requests.get(
+    resp = atproto.api_request(
+        "GET",
         f"{atproto.PDS_HOST}/xrpc/com.atproto.repo.listRecords",
         params={
             "repo": session["did"],
@@ -164,8 +210,11 @@ def list_entries(session: dict):
         headers={"Authorization": f"Bearer {session['accessJwt']}"},
         timeout=15,
     )
+    if resp.status_code == 401:
+        print("一覧取得失敗: 認証トークンが無効です。再ログインしてください。")
+        sys.exit(1)
     if not resp.ok:
-        print(f"一覧取得失敗: {resp.status_code}")
+        print(f"一覧取得失敗: {resp.status_code} {resp.text}")
         sys.exit(1)
 
     records = resp.json().get("records", [])
@@ -190,6 +239,59 @@ def list_entries(session: dict):
 # サブコマンド
 # ──────────────────────────────────────────────
 
+def find_rkey_by_title(session: dict, title: str) -> str:
+    """
+    PDS の listRecords を検索してタイトルに一致する記事の rkey を返す。
+    カーソルを使って全件検索する。見つからない場合は RuntimeError を送出する。
+    """
+    cursor = None
+    while True:
+        params = {
+            "repo": session["did"],
+            "collection": "com.whtwnd.blog.entry",
+            "limit": 100,
+        }
+        if cursor:
+            params["cursor"] = cursor
+
+        resp = atproto.api_request(
+            "GET",
+            f"{atproto.PDS_HOST}/xrpc/com.atproto.repo.listRecords",
+            params=params,
+            headers={"Authorization": f"Bearer {session['accessJwt']}"},
+            timeout=15,
+        )
+        if not resp.ok:
+            raise RuntimeError(f"記事一覧の取得に失敗しました: {resp.status_code}")
+
+        data = resp.json()
+        for r in data.get("records", []):
+            if r["value"].get("title") == title:
+                return r["uri"].split("/")[-1]
+
+        cursor = data.get("cursor")
+        if not cursor:
+            break
+
+    raise RuntimeError(f"記事が見つかりません: タイトル「{title}」")
+
+
+def resolve_rkey(session: dict, target: str | None, title: str | None) -> str:
+    """
+    rkey を解決して返す。
+    - target が "at://" 始まりの AT URI ならその末尾を使用
+    - target が rkey 文字列ならそのまま使用
+    - title 指定時は listRecords を全件検索してタイトルが一致する rkey を返す
+    """
+    if title:
+        return find_rkey_by_title(session, title)
+    if target:
+        if target.startswith("at://"):
+            return target.split("/")[-1]
+        return target
+    raise RuntimeError("rkey または --title のいずれかを指定してください")
+
+
 def cmd_post(args):
     config = atproto.load_config()
     session = atproto.create_session(config["handle"], config["password"])
@@ -211,24 +313,32 @@ def cmd_post(args):
 
     # 画像処理
     print("\n[画像のアップロード]")
+    blobs: list = []
     if not args.no_images:
         content, blobs = process_markdown_images(raw_content, md_file.parent, session)
         if not blobs:
             print("  (ローカル画像なし)")
     else:
-        content, blobs = raw_content, []
+        content = raw_content
         print("  (--no-images: スキップ)")
 
     # 記事投稿
     print("\n[記事の投稿]")
-    at_uri = post_entry(
-        session,
-        title=title or md_file.stem,
-        content=content,
-        blobs=blobs,
-        visibility=args.visibility,
-        draft=args.draft,
-    )
+    try:
+        at_uri = post_entry(
+            session,
+            title=title or md_file.stem,
+            content=content,
+            blobs=blobs,
+            visibility=args.visibility,
+            draft=args.draft,
+        )
+    except RuntimeError as e:
+        print(f"エラー: {e}")
+        if blobs:
+            print("  ⚠ 画像はアップロード済みですが、記事の作成に失敗しました。")
+            print("    アップロード済みの画像はPDSのGCにより自動削除されます。")
+        sys.exit(1)
 
     # WhiteWind通知
     notify_whitewind(session, at_uri)
@@ -243,6 +353,120 @@ def cmd_post(args):
     print(f"   URL      : {url}")
     print(f"   AT URI   : {at_uri}")
     print(f"{'='*50}\n")
+
+
+def cmd_update(args):
+    config = atproto.load_config()
+    session = atproto.create_session(config["handle"], config["password"])
+
+    # rkey の解決
+    try:
+        rkey = resolve_rkey(session, args.target, args.title)
+    except RuntimeError as e:
+        print(f"エラー: {e}")
+        sys.exit(1)
+    print(f"  更新対象 rkey: {rkey}")
+
+    md_file = Path(args.file)
+    if not md_file.exists():
+        print(f"ファイルが見つかりません: {md_file}")
+        sys.exit(1)
+
+    raw_content = md_file.read_text(encoding="utf-8")
+
+    # タイトル: CLIオプション → Markdown H1 → rkey の順
+    new_title = args.new_title
+    if not new_title:
+        h1_match = re.match(r"^#\s+(.+)", raw_content.strip(), re.MULTILINE)
+        if h1_match:
+            new_title = h1_match.group(1).strip()
+            print(f"  タイトルをMarkdownのH1から取得: {new_title}")
+
+    # 画像処理
+    print("\n[画像のアップロード]")
+    blobs: list = []
+    if not args.no_images:
+        content, blobs = process_markdown_images(raw_content, md_file.parent, session)
+        if not blobs:
+            print("  (ローカル画像なし)")
+    else:
+        content = raw_content
+        print("  (--no-images: スキップ)")
+
+    # 記事更新
+    print("\n[記事の更新]")
+    try:
+        at_uri = update_entry(
+            session,
+            rkey=rkey,
+            title=new_title or md_file.stem,
+            content=content,
+            blobs=blobs,
+            visibility=args.visibility,
+            draft=args.draft,
+        )
+    except RuntimeError as e:
+        print(f"エラー: {e}")
+        if blobs:
+            print("  ⚠ 画像はアップロード済みですが、記事の更新に失敗しました。")
+            print("    アップロード済みの画像はPDSのGCにより自動削除されます。")
+        sys.exit(1)
+
+    # WhiteWind通知
+    notify_whitewind(session, at_uri)
+
+    # 結果表示
+    url = entry_url(config["handle"], at_uri, new_title or md_file.stem)
+    status = "下書き" if args.draft else args.visibility
+    print(f"\n{'='*50}")
+    print(f"✅ 更新完了!")
+    print(f"   タイトル : {new_title or md_file.stem}")
+    print(f"   公開設定 : {status}")
+    print(f"   URL      : {url}")
+    print(f"   AT URI   : {at_uri}")
+    print(f"{'='*50}\n")
+
+
+def cmd_delete(args):
+    config = atproto.load_config()
+    session = atproto.create_session(config["handle"], config["password"])
+
+    # rkey の解決
+    try:
+        rkey = resolve_rkey(session, args.target, args.title)
+    except RuntimeError as e:
+        print(f"エラー: {e}")
+        sys.exit(1)
+
+    # 削除前確認
+    if not args.yes:
+        print(f"以下の記事を削除します:")
+        print(f"  rkey: {rkey}")
+        print(f"  AT URI: at://{session['did']}/com.whtwnd.blog.entry/{rkey}")
+        answer = input("削除してよいですか？ [y/N]: ").strip().lower()
+        if answer not in ("y", "yes"):
+            print("削除をキャンセルしました。")
+            sys.exit(0)
+
+    resp = atproto.api_request(
+        "POST",
+        f"{atproto.PDS_HOST}/xrpc/com.atproto.repo.deleteRecord",
+        headers={"Authorization": f"Bearer {session['accessJwt']}"},
+        json={
+            "repo": session["did"],
+            "collection": "com.whtwnd.blog.entry",
+            "rkey": rkey,
+        },
+        timeout=15,
+    )
+    if resp.status_code == 401:
+        print("削除失敗: 認証トークンが無効です。再ログインしてください。")
+        sys.exit(1)
+    if not resp.ok:
+        print(f"削除失敗: {resp.status_code} {resp.text}")
+        sys.exit(1)
+
+    print(f"✓ 削除完了: {rkey}")
 
 
 def cmd_list(args):
@@ -300,6 +524,29 @@ def main():
     p_post.add_argument("--draft", "-d", action="store_true", help="下書きとして保存 (visibility=author と同等)")
     p_post.add_argument("--no-images", action="store_true", help="画像アップロードをスキップ")
     p_post.set_defaults(func=cmd_post)
+
+    # update サブコマンド
+    p_update = sub.add_parser("update", help="既存記事を更新")
+    p_update.add_argument("target", nargs="?", help="rkey または AT URI（--title 指定時は省略可）")
+    p_update.add_argument("file", help="更新内容のMarkdownファイルのパス")
+    p_update.add_argument("--title", "-t", dest="title", help="更新対象をタイトルで指定")
+    p_update.add_argument("--new-title", dest="new_title", help="更新後のタイトル（省略時はMarkdownのH1を使用）")
+    p_update.add_argument(
+        "--visibility", "-v",
+        choices=["public", "url", "author"],
+        default="public",
+        help="公開設定 (default: public)",
+    )
+    p_update.add_argument("--draft", "-d", action="store_true", help="下書きとして保存")
+    p_update.add_argument("--no-images", action="store_true", help="画像アップロードをスキップ")
+    p_update.set_defaults(func=cmd_update)
+
+    # delete サブコマンド
+    p_delete = sub.add_parser("delete", help="記事を削除")
+    p_delete.add_argument("target", nargs="?", help="rkey または AT URI（--title 指定時は省略可）")
+    p_delete.add_argument("--title", "-t", help="削除対象をタイトルで指定")
+    p_delete.add_argument("--yes", "-y", action="store_true", help="確認プロンプトをスキップ")
+    p_delete.set_defaults(func=cmd_delete)
 
     # list サブコマンド
     p_list = sub.add_parser("list", help="投稿済み記事の一覧を表示")

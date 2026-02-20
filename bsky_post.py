@@ -25,8 +25,6 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-import requests
-
 import atproto
 
 MAX_GRAPHEMES = 300  # Bluesky の投稿文字数上限
@@ -128,7 +126,8 @@ def post_skeet(
             "images": embed_images,
         }
 
-    resp = requests.post(
+    resp = atproto.api_request(
+        "POST",
         f"{atproto.PDS_HOST}/xrpc/com.atproto.repo.createRecord",
         headers={"Authorization": f"Bearer {session['accessJwt']}"},
         json={
@@ -138,8 +137,8 @@ def post_skeet(
         },
         timeout=15,
     )
-    if resp.status_code == 429:
-        print("レート制限に達しました。しばらく待ってから再試行してください。")
+    if resp.status_code == 401:
+        print("投稿失敗: 認証トークンが無効です。再ログインしてください。")
         sys.exit(1)
     if not resp.ok:
         print(f"投稿失敗: {resp.status_code} {resp.text}")

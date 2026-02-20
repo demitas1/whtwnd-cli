@@ -168,34 +168,30 @@ bsky_post.py  ──┘
 
 ### Priority 1: 基本的な信頼性
 
-#### 1-1. エラーハンドリングの強化
-- ネットワークエラー（タイムアウト等）のリトライ処理
-- HTTPステータスコード別の明確なエラーメッセージ
-  - 401: アプリパスワードが誤り
-  - 429: レート制限 → バックオフして再試行
-  - 5xx: サーバーエラー
-- `uploadBlob` 失敗時のロールバック設計
-- 設定ファイルが壊れている場合の検出と案内
+#### ~~1-1. エラーハンドリングの強化~~ ✅ 完了（2026-02-20）
 
-#### 1-2. 記事の更新（put）
+- `atproto.api_request()` にリトライロジックを実装
+  - Timeout / ConnectionError: エクスポネンシャルバックオフで最大3回リトライ
+  - 429 レート制限: `Retry-After` ヘッダーを尊重してリトライ
+  - 5xx サーバーエラー: バックオフでリトライ
+- HTTPステータスコード別の明確なエラーメッセージ（401・400・413 等）
+- 設定ファイルの JSON 形式不正を検出して案内（`json.JSONDecodeError`）
+- `upload_blob` 失敗時に孤立 blob は PDS の GC で自動削除される旨を表示
+- `post_entry` が RuntimeError を送出する設計に変更し、`cmd_post` で blob 孤立警告を表示
 
-```
-python whtwnd_post.py update <rkey_or_url> article.md
-python whtwnd_post.py update --title "既存タイトル" article.md
-```
+#### ~~1-2. 記事の更新（put）~~ ✅ 完了（2026-02-20）
 
-- `com.atproto.repo.putRecord` を使用（rkey指定が必要）
-- `--title` 指定時は `com.whtwnd.blog.getEntryMetadataByName` でAT URIを取得してrkeyを取り出す
+- `update` サブコマンドを実装（`com.atproto.repo.putRecord` を使用）
+- rkey / AT URI の直接指定に対応
+- `--title` 指定時は PDS の `listRecords` を全件検索してタイトルが一致する rkey を取得
+  - WhiteWind の `getEntryMetadataByName` は CloudFront/Next.js に吸収されて 500 を返すため PDS 直接検索に変更
+- `update_entry()` は失敗時に RuntimeError を送出し `cmd_update` でblobの孤立警告を表示
 
-#### 1-3. 記事の削除
+#### ~~1-3. 記事の削除~~ ✅ 完了（2026-02-20）
 
-```
-python whtwnd_post.py delete <rkey_or_url>
-python whtwnd_post.py delete --title "記事タイトル"
-```
-
-- `com.atproto.repo.deleteRecord` を使用
-- 削除前に確認プロンプト（`--yes` / `-y` フラグで省略可）
+- `delete` サブコマンドを実装（`com.atproto.repo.deleteRecord` を使用）
+- rkey / AT URI の直接指定と `--title` 指定に対応（`find_rkey_by_title` を共用）
+- 削除前に確認プロンプトを表示し、`--yes` / `-y` フラグで省略可能
 
 ---
 

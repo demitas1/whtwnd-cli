@@ -12,7 +12,8 @@ WhiteWindはBluesky/AT Protocolベースのブログサービス。記事はユ�
 
 ```
 whtwnd-cli/
-  whtwnd_post.py        # メインスクリプト（単一ファイル実装）
+  whtwnd_post.py        # WhiteWind 投稿スクリプト
+  bsky_post.py          # Bluesky スキート投稿スクリプト
   requirements.txt      # 依存パッケージ（requests のみ）
   README.md             # ユーザー向けドキュメント
   CLAUDE.md             # Claude Code 向け指示書
@@ -80,7 +81,9 @@ CLIコマンド
 
 ---
 
-## 動作確認済みの挙動（2026-02-19）
+## 動作確認済みの挙動
+
+### whtwnd_post.py（2026-02-19）
 
 | 機能 | 状態 | 備考 |
 |---|---|---|
@@ -89,6 +92,17 @@ CLIコマンド
 | 記事一覧 | ✅ 正常 | |
 | ローカル画像アップロード | ✅ 実装済み（未テスト） | |
 | WhiteWind 通知 | ⚠️ 常に失敗 | WhiteWind 側の CloudFront が POST を拒否している。WhiteWind がリレーの firehose 経由で自動検出するため実害なし |
+
+### bsky_post.py（2026-02-20）
+
+| 機能 | 状態 | 備考 |
+|---|---|---|
+| テキスト投稿 | ✅ 正常 | 引数・ファイル・stdin の3通り |
+| ハッシュタグ facet | ✅ 正常 | バイト位置の計算も正確 |
+| URL facet | ✅ 実装済み | |
+| @メンション facet | ✅ 実装済み | DID 解決つき（存在しないハンドルはスキップ） |
+| 画像添付 | ✅ 実装済み（未テスト） | 最大4枚 |
+| 言語タグ（--lang） | ✅ 実装済み | |
 
 ---
 

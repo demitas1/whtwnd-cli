@@ -233,6 +233,16 @@ python whtwnd_post.py preview article.md
 - AT URIとWhiteWind URLを表示
 - カーソルページネーション対応（50件以上）
 
+#### 2-5. Bluesky 動画アップロード対応
+
+→ 詳細設計: [docs/new-features.md](new-features.md#priority-2-5-bluesky-動画アップロード対応)
+
+- `bsky_post.py` に `--video` / `--alt` オプションを追加
+- アップロードフロー: サービス認証トークン取得 → `video.bsky.app` へアップロード → ジョブポーリング → `app.bsky.embed.video` でスキート投稿
+- `atproto.py` に `get_service_auth()` を追加
+- ffprobe（システム依存）でアスペクト比を取得
+- `--video` と `--image` は排他
+
 ---
 
 ### Priority 3: 発展機能

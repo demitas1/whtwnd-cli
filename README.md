@@ -158,6 +158,22 @@ python whtwnd_post.py list
 投稿時にPDSへ自動アップロードされ、公開URLに置き換わります。
 `https://` や `http://` 始まりのURLはそのまま使用されます。
 
+**画像パスの基準ディレクトリについて:**
+
+画像の相対パスは、**コマンドを実行したカレントディレクトリではなく、Markdownファイルが置かれているディレクトリ**を起点に解決されます。
+
+```
+例: python whtwnd_post.py post path/to/article.md
+```
+
+| article.md 内の記述 | 解決されるパス |
+|---|---|
+| `![](./image.png)` | `path/to/image.png` |
+| `![](images/fig1.jpg)` | `path/to/images/fig1.jpg` |
+| `![](../shared/img.png)` | `path/shared/img.png` |
+
+このため、Markdownファイルと画像ファイルの相対的な位置関係さえ正しければ、どのディレクトリからコマンドを実行しても正常に動作します。
+
 ## 使い方 — Bluesky
 
 ### スキートを投稿

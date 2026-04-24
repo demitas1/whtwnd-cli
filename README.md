@@ -11,9 +11,10 @@ WhiteWind is a Markdown blog service built on AT Protocol (the same protocol as 
 **WhiteWind posting (`whtwnd_post.py`)**
 
 - Post, update, and delete articles from Markdown files
+- YAML frontmatter for managing post settings in the article file
 - Automatic local image upload & URL replacement
 - Visibility control (public / URL-only / author-only / draft)
-- Automatic title extraction from Markdown H1
+- Automatic title extraction from frontmatter or Markdown H1
 - Search, update, and delete articles by title
 - List posted articles
 
@@ -70,26 +71,33 @@ The config file in the current directory takes priority. If not found, `~/.bsky_
 
 Run the following commands with the `venv` environment activated, or from the project directory.
 
-### Post an article
+### Frontmatter
 
-```bash
-# Auto-extract title from Markdown H1 and publish publicly
-python whtwnd_post.py post article.md
+Add YAML frontmatter at the top of your Markdown file to configure post settings.
 
-# Specify title explicitly
-python whtwnd_post.py post article.md --title "Article Title"
+```markdown
+---
+title: Article Title
+tags:
+  - Python
+  - API
+visibility: public
+draft: false
+---
 
-# Save as draft (visible to yourself only)
-python whtwnd_post.py post article.md --draft
-
-# Visible only to those with the URL
-python whtwnd_post.py post article.md --visibility url
-
-# Skip image upload
-python whtwnd_post.py post article.md --no-images
+# Body starts here
 ```
 
-**Visibility options (`--visibility`):**
+**Frontmatter fields:**
+
+| Field | Description | CLI option |
+|---|---|---|
+| `title` | Article title | `--title` (takes priority) |
+| `tags` | Tag list (ignored by whtwnd, used for Qiita export) | — |
+| `visibility` | Visibility setting (see table below) | `--visibility` (takes priority) |
+| `draft` | Set `true` to save as draft | `--draft` (takes priority) |
+
+**`visibility` values:**
 
 | Value | Description |
 |---|---|
@@ -97,7 +105,27 @@ python whtwnd_post.py post article.md --no-images
 | `url` | Visible only to those with the URL |
 | `author` | Visible to yourself only |
 
-`--draft` is equivalent to `--visibility author`.
+`draft: true` is equivalent to `visibility: author`.
+
+> **Posting without frontmatter:** Use `--no-frontmatter` to use CLI options only.
+
+### Post an article
+
+```bash
+# Post using settings from frontmatter (recommended)
+python whtwnd_post.py post article.md
+
+# Override frontmatter settings with CLI options
+python whtwnd_post.py post article.md --title "Different Title"
+python whtwnd_post.py post article.md --draft
+python whtwnd_post.py post article.md --visibility url
+
+# Skip image upload
+python whtwnd_post.py post article.md --no-images
+
+# Post without frontmatter (legacy mode)
+python whtwnd_post.py post article.md --no-frontmatter --title "Article Title"
+```
 
 ### Update an article
 

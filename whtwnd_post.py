@@ -28,7 +28,51 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import frontmatter as fm
 import atproto
+
+
+# ──────────────────────────────────────────────
+# frontmatter 解析
+# ──────────────────────────────────────────────
+
+def parse_frontmatter(content: str) -> tuple[dict | None, str]:
+    """
+    YAML frontmatter を解析して (metadata, body) を返す。
+    frontmatter がない場合は (None, content) を返す。
+    """
+    post = fm.loads(content)
+    if not post.metadata:
+        return None, content
+    return dict(post.metadata), post.content
+
+
+_FRONTMATTER_EXAMPLE = """\
+  ---
+  title: 記事タイトル
+  tags: [タグ1, タグ2]
+  visibility: public
+  ---"""
+
+
+def _resolve_post_params(args, metadata: dict) -> tuple[str | None, str, bool]:
+    """
+    frontmatter と CLI オプションから (title, visibility, is_draft) を解決する。
+    優先順: --draft CLI > --visibility CLI > frontmatter draft > frontmatter visibility > default
+    """
+    title = args.title or metadata.get("title")
+
+    if args.draft:
+        visibility, is_draft = "author", True
+    elif args.visibility is not None:
+        visibility, is_draft = args.visibility, False
+    elif metadata.get("draft", False):
+        visibility, is_draft = "author", True
+    else:
+        visibility = metadata.get("visibility", "public")
+        is_draft = False
+
+    return title, visibility, is_draft
 
 
 # ──────────────────────────────────────────────
@@ -331,10 +375,22 @@ def cmd_post(args):
 
     raw_content = md_file.read_text(encoding="utf-8")
 
-    # タイトルが未指定の場合、Markdownの先頭H1から取得
-    title = args.title
+    # frontmatter 解析
+    if args.no_frontmatter:
+        metadata, body = {}, raw_content
+    else:
+        metadata, body = parse_frontmatter(raw_content)
+        if metadata is None:
+            print("エラー: frontmatter が見つかりません。")
+            print("  記事ファイルの先頭に frontmatter を追加してください:")
+            print(_FRONTMATTER_EXAMPLE)
+            print("  frontmatter なしで投稿するには --no-frontmatter を指定してください。")
+            sys.exit(1)
+
+    # タイトル・公開設定を解決
+    title, visibility, is_draft = _resolve_post_params(args, metadata)
     if not title:
-        h1_match = re.match(r"^#\s+(.+)", raw_content.strip(), re.MULTILINE)
+        h1_match = re.match(r"^#\s+(.+)", body.strip(), re.MULTILINE)
         if h1_match:
             title = h1_match.group(1).strip()
             print(f"  タイトルをMarkdownのH1から取得: {title}")
@@ -343,11 +399,11 @@ def cmd_post(args):
     print("\n[画像のアップロード]")
     blobs: list = []
     if not args.no_images:
-        content, blobs = process_markdown_images(raw_content, md_file.parent, session)
+        content, blobs = process_markdown_images(body, md_file.parent, session)
         if not blobs:
             print("  (ローカル画像なし)")
     else:
-        content = raw_content
+        content = body
         print("  (--no-images: スキップ)")
 
     # 記事投稿
@@ -358,8 +414,8 @@ def cmd_post(args):
             title=title or md_file.stem,
             content=content,
             blobs=blobs,
-            visibility=args.visibility,
-            draft=args.draft,
+            visibility=visibility,
+            draft=is_draft,
         )
     except RuntimeError as e:
         print(f"エラー: {e}")
@@ -373,7 +429,7 @@ def cmd_post(args):
 
     # 結果表示
     url = entry_url(config["handle"], at_uri, title or md_file.stem)
-    status = "下書き" if args.draft else args.visibility
+    status = "下書き" if is_draft else visibility
     print(f"\n{'='*50}")
     print(f"✅ 投稿完了!")
     print(f"   タイトル : {title or md_file.stem}")
@@ -402,10 +458,23 @@ def cmd_update(args):
 
     raw_content = md_file.read_text(encoding="utf-8")
 
-    # タイトル: CLIオプション → Markdown H1 → rkey の順
-    new_title = args.new_title
+    # frontmatter 解析
+    if args.no_frontmatter:
+        metadata, body = {}, raw_content
+    else:
+        metadata, body = parse_frontmatter(raw_content)
+        if metadata is None:
+            print("エラー: frontmatter が見つかりません。")
+            print("  記事ファイルの先頭に frontmatter を追加してください:")
+            print(_FRONTMATTER_EXAMPLE)
+            print("  frontmatter なしで更新するには --no-frontmatter を指定してください。")
+            sys.exit(1)
+
+    # タイトル・公開設定を解決（--new-title > frontmatter title > H1 > ファイル名）
+    _, visibility, is_draft = _resolve_post_params(args, metadata)
+    new_title = args.new_title or metadata.get("title")
     if not new_title:
-        h1_match = re.match(r"^#\s+(.+)", raw_content.strip(), re.MULTILINE)
+        h1_match = re.match(r"^#\s+(.+)", body.strip(), re.MULTILINE)
         if h1_match:
             new_title = h1_match.group(1).strip()
             print(f"  タイトルをMarkdownのH1から取得: {new_title}")
@@ -414,11 +483,11 @@ def cmd_update(args):
     print("\n[画像のアップロード]")
     blobs: list = []
     if not args.no_images:
-        content, blobs = process_markdown_images(raw_content, md_file.parent, session)
+        content, blobs = process_markdown_images(body, md_file.parent, session)
         if not blobs:
             print("  (ローカル画像なし)")
     else:
-        content = raw_content
+        content = body
         print("  (--no-images: スキップ)")
 
     # 記事更新
@@ -430,8 +499,8 @@ def cmd_update(args):
             title=new_title or md_file.stem,
             content=content,
             blobs=blobs,
-            visibility=args.visibility,
-            draft=args.draft,
+            visibility=visibility,
+            draft=is_draft,
         )
     except RuntimeError as e:
         print(f"エラー: {e}")
@@ -445,7 +514,7 @@ def cmd_update(args):
 
     # 結果表示
     url = entry_url(config["handle"], at_uri, new_title or md_file.stem)
-    status = "下書き" if args.draft else args.visibility
+    status = "下書き" if is_draft else visibility
     print(f"\n{'='*50}")
     print(f"✅ 更新完了!")
     print(f"   タイトル : {new_title or md_file.stem}")
@@ -563,15 +632,17 @@ def main():
     # post サブコマンド
     p_post = sub.add_parser("post", help="Markdownファイルを投稿")
     p_post.add_argument("file", help="Markdownファイルのパス")
-    p_post.add_argument("--title", "-t", help="記事タイトル (省略時はMarkdownのH1を使用)")
+    p_post.add_argument("--title", "-t", help="記事タイトル（frontmatter の title より優先）")
     p_post.add_argument(
         "--visibility", "-v",
         choices=["public", "url", "author"],
-        default="public",
-        help="公開設定: public=全体公開, url=URLのみ, author=自分のみ (default: public)",
+        default=None,
+        help="公開設定: public=全体公開, url=URLのみ, author=自分のみ（frontmatter の visibility より優先）",
     )
-    p_post.add_argument("--draft", "-d", action="store_true", help="下書きとして保存 (visibility=author と同等)")
+    p_post.add_argument("--draft", "-d", action="store_true", help="下書きとして保存（frontmatter の設定より優先）")
     p_post.add_argument("--no-images", action="store_true", help="画像アップロードをスキップ")
+    p_post.add_argument("--no-frontmatter", action="store_true",
+                        help="frontmatter なしで投稿（CLI オプションのみ使用、後方互換モード）")
     p_post.set_defaults(func=cmd_post)
 
     # update サブコマンド
@@ -579,15 +650,17 @@ def main():
     p_update.add_argument("target", nargs="?", help="rkey、AT URI、または WhiteWind URL（--title 指定時は省略可）")
     p_update.add_argument("file", help="更新内容のMarkdownファイルのパス")
     p_update.add_argument("--title", "-t", dest="title", help="更新対象をタイトルで指定")
-    p_update.add_argument("--new-title", dest="new_title", help="更新後のタイトル（省略時はMarkdownのH1を使用）")
+    p_update.add_argument("--new-title", dest="new_title", help="更新後のタイトル（frontmatter の title より優先）")
     p_update.add_argument(
         "--visibility", "-v",
         choices=["public", "url", "author"],
-        default="public",
-        help="公開設定 (default: public)",
+        default=None,
+        help="公開設定（frontmatter の visibility より優先）",
     )
-    p_update.add_argument("--draft", "-d", action="store_true", help="下書きとして保存")
+    p_update.add_argument("--draft", "-d", action="store_true", help="下書きとして保存（frontmatter の設定より優先）")
     p_update.add_argument("--no-images", action="store_true", help="画像アップロードをスキップ")
+    p_update.add_argument("--no-frontmatter", action="store_true",
+                          help="frontmatter なしで更新（CLI オプションのみ使用、後方互換モード）")
     p_update.set_defaults(func=cmd_update)
 
     # delete サブコマンド

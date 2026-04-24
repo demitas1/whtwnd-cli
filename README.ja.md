@@ -11,9 +11,10 @@ CLIからWhiteWind（whtwnd.com）にMarkdown記事を投稿するPythonツー�
 **WhiteWind投稿 (`whtwnd_post.py`)**
 
 - Markdownファイルをそのまま投稿・更新・削除
+- YAML frontmatter による投稿設定の管理
 - ローカル画像の自動アップロード＆URL置換
 - 公開設定の制御（全体公開 / URL限定 / 自分のみ / 下書き）
-- タイトルの自動抽出（MarkdownのH1から）
+- タイトルの自動抽出（frontmatter または MarkdownのH1から）
 - タイトル指定による記事の検索・更新・削除
 - 投稿済み記事一覧の表示
 
@@ -70,26 +71,33 @@ EOF
 
 以下のコマンドは `venv` 環境を有効化した状態、またはプロジェクトディレクトリで実行します。
 
-### 記事を投稿
+### frontmatter の書き方
 
-```bash
-# タイトルをMarkdownのH1から自動取得して全体公開
-python whtwnd_post.py post article.md
+記事 Markdown ファイルの先頭に YAML frontmatter で投稿設定を記述します。
 
-# タイトルを明示して投稿
-python whtwnd_post.py post article.md --title "記事タイトル"
+```markdown
+---
+title: 記事タイトル
+tags:
+  - Python
+  - API
+visibility: public
+draft: false
+---
 
-# 下書きとして保存（自分のみ閲覧可）
-python whtwnd_post.py post article.md --draft
-
-# URLを知っている人だけ閲覧可能
-python whtwnd_post.py post article.md --visibility url
-
-# 画像アップロードをスキップ
-python whtwnd_post.py post article.md --no-images
+# 本文はここから
 ```
 
-**公開設定オプション (`--visibility`):**
+**frontmatter フィールド:**
+
+| フィールド | 説明 | CLIオプション |
+|---|---|---|
+| `title` | 記事タイトル | `--title`（優先） |
+| `tags` | タグ一覧（whtwnd では無視） | — |
+| `visibility` | 公開設定（下表参照） | `--visibility`（優先） |
+| `draft` | `true` で下書き保存 | `--draft`（優先） |
+
+**`visibility` の値:**
 
 | 値 | 説明 |
 |---|---|
@@ -97,7 +105,27 @@ python whtwnd_post.py post article.md --no-images
 | `url` | URLを知っている人のみ閲覧可 |
 | `author` | 自分のみ閲覧可 |
 
-`--draft` は `--visibility author` と同等です。
+`draft: true` は `visibility: author` と同等です。
+
+> **frontmatter なしで投稿する場合:** `--no-frontmatter` を指定すると CLI オプションのみで動作します。
+
+### 記事を投稿
+
+```bash
+# frontmatter に設定を書いて投稿（推奨）
+python whtwnd_post.py post article.md
+
+# CLIオプションで frontmatter の設定を上書き
+python whtwnd_post.py post article.md --title "別のタイトル"
+python whtwnd_post.py post article.md --draft
+python whtwnd_post.py post article.md --visibility url
+
+# 画像アップロードをスキップ
+python whtwnd_post.py post article.md --no-images
+
+# frontmatter なしで投稿（後方互換モード）
+python whtwnd_post.py post article.md --no-frontmatter --title "記事タイトル"
+```
 
 ### 記事を更新
 

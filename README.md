@@ -1,43 +1,45 @@
 # whtwnd-cli
 
-CLIからWhiteWind（whtwnd.com）にMarkdown記事を投稿するPythonツール。Blueskyへのスキート投稿にも対応。
+English | [日本語](README.ja.md)
 
-[WhiteWind](https://whtwnd.com) はAT Protocol（Blueskyと同じプロトコル）上に構築されたMarkdownブログサービスです。記事データはBluesky PDS上に保存され、ユーザー自身が完全に所有します。
+A Python CLI tool for posting Markdown articles to [WhiteWind](https://whtwnd.com) (whtwnd.com). Also supports posting skeets to Bluesky.
 
-## 機能
+WhiteWind is a Markdown blog service built on AT Protocol (the same protocol as Bluesky). Articles are stored on your own Bluesky PDS and fully owned by you.
 
-**WhiteWind投稿 (`whtwnd_post.py`)**
+## Features
 
-- Markdownファイルをそのまま投稿・更新・削除
-- ローカル画像の自動アップロード＆URL置換
-- 公開設定の制御（全体公開 / URL限定 / 自分のみ / 下書き）
-- タイトルの自動抽出（MarkdownのH1から）
-- タイトル指定による記事の検索・更新・削除
-- 投稿済み記事一覧の表示
+**WhiteWind posting (`whtwnd_post.py`)**
 
-**Bluesky投稿 (`bsky_post.py`)**
+- Post, update, and delete articles from Markdown files
+- Automatic local image upload & URL replacement
+- Visibility control (public / URL-only / author-only / draft)
+- Automatic title extraction from Markdown H1
+- Search, update, and delete articles by title
+- List posted articles
 
-- スキートの投稿（テキスト・画像対応、最大4枚）
-- リッチテキスト自動検出（URL・メンション・ハッシュタグ）
-- 言語タグ指定
+**Bluesky posting (`bsky_post.py`)**
 
-## セットアップ
+- Post skeets (text and images, up to 4)
+- Automatic rich-text detection (URLs, mentions, hashtags)
+- Language tag support
 
-### 1. リポジトリのクローンと依存パッケージのインストール
+## Setup
+
+### 1. Clone the repository and install dependencies
 
 ```bash
-git clone https://github.com/yourname/whtwnd-cli.git
+git clone https://github.com/demitas1/whtwnd-cli.git
 cd whtwnd-cli
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. 認証情報の設定
+### 2. Configure credentials
 
-Bluesky の[アプリパスワード](https://bsky.app/settings/app-passwords)を発行してから、設定ファイルを作成します。
+Generate a [Bluesky app password](https://bsky.app/settings/app-passwords), then create a config file.
 
-**ホームディレクトリに作成する場合（推奨）:**
+**In your home directory (recommended):**
 
 ```bash
 cat > ~/.bsky_config.json << 'EOF'
@@ -49,7 +51,7 @@ EOF
 chmod 600 ~/.bsky_config.json
 ```
 
-**プロジェクトディレクトリに作成する場合:**
+**In the project directory:**
 
 ```bash
 cat > .bsky_config.json << 'EOF'
@@ -60,186 +62,187 @@ cat > .bsky_config.json << 'EOF'
 EOF
 ```
 
-> **注意:** メインパスワードではなく**アプリパスワード**を使用してください。プロジェクト内に置く場合は `.gitignore` により Git の追跡対象から除外されています。
+> **Note:** Use an **app password**, not your main Bluesky password. If placed in the project directory, it is excluded from Git tracking via `.gitignore`.
 
-カレントディレクトリの `.bsky_config.json` が優先されます。見つからない場合は `~/.bsky_config.json` を参照します。
+The config file in the current directory takes priority. If not found, `~/.bsky_config.json` is used.
 
-## 使い方 — WhiteWind
+## Usage — WhiteWind
 
-以下のコマンドは `venv` 環境を有効化した状態、またはプロジェクトディレクトリで実行します。
+Run the following commands with the `venv` environment activated, or from the project directory.
 
-### 記事を投稿
+### Post an article
 
 ```bash
-# タイトルをMarkdownのH1から自動取得して全体公開
+# Auto-extract title from Markdown H1 and publish publicly
 python whtwnd_post.py post article.md
 
-# タイトルを明示して投稿
-python whtwnd_post.py post article.md --title "記事タイトル"
+# Specify title explicitly
+python whtwnd_post.py post article.md --title "Article Title"
 
-# 下書きとして保存（自分のみ閲覧可）
+# Save as draft (visible to yourself only)
 python whtwnd_post.py post article.md --draft
 
-# URLを知っている人だけ閲覧可能
+# Visible only to those with the URL
 python whtwnd_post.py post article.md --visibility url
 
-# 画像アップロードをスキップ
+# Skip image upload
 python whtwnd_post.py post article.md --no-images
 ```
 
-**公開設定オプション (`--visibility`):**
+**Visibility options (`--visibility`):**
 
-| 値 | 説明 |
+| Value | Description |
 |---|---|
-| `public` | 全体公開（デフォルト） |
-| `url` | URLを知っている人のみ閲覧可 |
-| `author` | 自分のみ閲覧可 |
+| `public` | Publicly visible (default) |
+| `url` | Visible only to those with the URL |
+| `author` | Visible to yourself only |
 
-`--draft` は `--visibility author` と同等です。
+`--draft` is equivalent to `--visibility author`.
 
-### 記事を更新
+### Update an article
 
 ```bash
-# タイトルで対象を指定して更新
-python whtwnd_post.py update --title "既存の記事タイトル" new_article.md
+# Update by title
+python whtwnd_post.py update --title "Existing Article Title" new_article.md
 
-# rkey（記事ID）で指定して更新
+# Update by rkey (article ID)
 python whtwnd_post.py update 3la5v2sq4s42q new_article.md
 
-# AT URIで指定して更新
+# Update by AT URI
 python whtwnd_post.py update at://did:plc:.../com.whtwnd.blog.entry/3la5v2sq4s42q new_article.md
 
-# WhiteWind の記事 URL で指定して更新
+# Update by WhiteWind article URL (paste directly from browser)
 python whtwnd_post.py update https://whtwnd.com/yourname.bsky.social/3la5v2sq4s42q new_article.md
 
-# タイトルも変更する場合
-python whtwnd_post.py update --title "旧タイトル" new_article.md --new-title "新タイトル"
+# Also change the title
+python whtwnd_post.py update --title "Old Title" new_article.md --new-title "New Title"
 ```
 
-### 記事を削除
+### Delete an article
 
 ```bash
-# タイトルで対象を指定して削除（確認プロンプトあり）
-python whtwnd_post.py delete --title "記事タイトル"
+# Delete by title (confirmation prompt shown)
+python whtwnd_post.py delete --title "Article Title"
 
-# rkey で指定して削除
+# Delete by rkey
 python whtwnd_post.py delete 3la5v2sq4s42q
 
-# WhiteWind の記事 URL で指定して削除
+# Delete by WhiteWind article URL (paste directly from browser)
 python whtwnd_post.py delete https://whtwnd.com/yourname.bsky.social/3la5v2sq4s42q
 
-# 確認プロンプトをスキップ
-python whtwnd_post.py delete --title "記事タイトル" --yes
+# Skip confirmation prompt
+python whtwnd_post.py delete --title "Article Title" --yes
 ```
 
-削除前の確認プロンプトでは、タイトル・rkey・AT URI が表示されます:
+The confirmation prompt shows the title, rkey, and AT URI before deleting:
 
 ```
-以下の記事を削除します:
-  タイトル: 私の記事
+The following article will be deleted:
+  Title: My Article
   rkey: 3la5v2sq4s42q
   AT URI: at://did:plc:.../com.whtwnd.blog.entry/3la5v2sq4s42q
-削除してよいですか？ [y/N]:
+Proceed with deletion? [y/N]:
 ```
 
-### 記事一覧を確認
+### List articles
 
 ```bash
 python whtwnd_post.py list
 ```
 
-出力例:
+Example output:
 
 ```
 ────────────────────────────────────────────────────────────
-タイトル                           公開設定       作成日
+Title                          Visibility   Created
 ────────────────────────────────────────────────────────────
-私のブログ記事                      public     2026-02-19  (3mf6kmdywdz2q)
+My Blog Post                   public       2026-02-19  (3mf6kmdywdz2q)
 ────────────────────────────────────────────────────────────
 ```
 
-### Markdownでの画像の書き方
+### Image paths in Markdown
 
-ローカル画像ファイルへの相対パスをそのまま書くだけでOKです。
+Simply write the relative path to a local image file — it will be uploaded automatically.
 
 ```markdown
-# 記事タイトル
+# Article Title
 
-本文テキスト...
+Body text...
 
-![キャプション](./images/screenshot.png)
-![図1](../assets/fig1.jpg)
+![Caption](./images/screenshot.png)
+![Figure 1](../assets/fig1.jpg)
 ```
 
-投稿時にPDSへ自動アップロードされ、公開URLに置き換わります。
-`https://` や `http://` 始まりのURLはそのまま使用されます。
+Images are automatically uploaded to your PDS and the URLs are replaced in the content.
+URLs starting with `https://` or `http://` are used as-is.
 
-**画像パスの基準ディレクトリについて:**
+**Note on image path resolution:**
 
-画像の相対パスは、**コマンドを実行したカレントディレクトリではなく、Markdownファイルが置かれているディレクトリ**を起点に解決されます。
+Relative image paths are resolved relative to **the directory containing the Markdown file**, not the current working directory where you run the command.
 
 ```
-例: python whtwnd_post.py post path/to/article.md
+Example: python whtwnd_post.py post path/to/article.md
 ```
 
-| article.md 内の記述 | 解決されるパス |
+| Written in article.md | Resolved path |
 |---|---|
 | `![](./image.png)` | `path/to/image.png` |
 | `![](images/fig1.jpg)` | `path/to/images/fig1.jpg` |
 | `![](../shared/img.png)` | `path/shared/img.png` |
 
-このため、Markdownファイルと画像ファイルの相対的な位置関係さえ正しければ、どのディレクトリからコマンドを実行しても正常に動作します。
+As long as the relative positions of the Markdown file and image files are correct, the tool works regardless of which directory you run the command from.
 
-## 使い方 — Bluesky
+## Usage — Bluesky
 
-### スキートを投稿
+### Post a skeet
 
 ```bash
-# テキストを直接指定
-python bsky_post.py post "今日も良い天気です #bluesky"
+# Specify text directly
+python bsky_post.py post "Great weather today #bluesky"
 
-# ファイルから読み込み
+# Read from file
 python bsky_post.py post --file message.txt
 
-# 標準入力から読み込み
-echo "テスト投稿" | python bsky_post.py post --file -
+# Read from stdin
+echo "Test post" | python bsky_post.py post --file -
 
-# 画像付き（最大4枚）
-python bsky_post.py post "写真を投稿しました" --image photo.jpg
+# With images (up to 4)
+python bsky_post.py post "Posted a photo" --image photo.jpg
 
-# 複数画像・言語タグ指定
-python bsky_post.py post "テスト" --image a.jpg --image b.jpg --lang ja --lang en
+# Multiple images with language tags
+python bsky_post.py post "Test" --image a.jpg --image b.jpg --lang ja --lang en
 ```
 
-**リッチテキスト（自動検出）:**
+**Rich text (auto-detected):**
 
-| パターン | 変換後 |
+| Pattern | Result |
 |---|---|
-| `https://...` | クリック可能なリンク |
-| `@ハンドル.ドメイン` | メンションリンク |
-| `#ハッシュタグ` | タグリンク |
+| `https://...` | Clickable link |
+| `@handle.domain` | Mention link |
+| `#hashtag` | Tag link |
 
-## 仕組み
+## How it works
 
-WhiteWindの記事はAT Protocolのレコードとして自分のPDSに保存されます。
+WhiteWind articles are stored as AT Protocol records on your own PDS.
 
 ```
-1. Bluesky PDS に認証         com.atproto.server.createSession
-2. ローカル画像をアップロード   com.atproto.repo.uploadBlob
-3. 記事レコードを作成・更新     com.atproto.repo.createRecord / putRecord
-                               (コレクション: com.whtwnd.blog.entry)
-4. WhiteWind に通知            com.whtwnd.blog.notifyOfNewEntry
-                               ※現在常に失敗するが、firehose 経由で自動検出される
+1. Authenticate with Bluesky PDS    com.atproto.server.createSession
+2. Upload local images              com.atproto.repo.uploadBlob
+3. Create / update article record   com.atproto.repo.createRecord / putRecord
+                                    (collection: com.whtwnd.blog.entry)
+4. Notify WhiteWind                 com.whtwnd.blog.notifyOfNewEntry
+                                    * Currently always fails, but WhiteWind
+                                      auto-detects via firehose
 ```
 
-## セルフホストPDS
+## Self-hosted PDS
 
-`atproto.py` 冒頭の `PDS_HOST` 定数を変更してください。
+Change the `PDS_HOST` constant at the top of `atproto.py`:
 
 ```python
 PDS_HOST = "https://your-pds.example.com"
 ```
 
-## ライセンス
+## License
 
 MIT

@@ -221,28 +221,6 @@ python bsky_post.py post "Test" --image a.jpg --image b.jpg --lang ja --lang en
 | `@handle.domain` | Mention link |
 | `#hashtag` | Tag link |
 
-## How it works
-
-WhiteWind articles are stored as AT Protocol records on your own PDS.
-
-```
-1. Authenticate with Bluesky PDS    com.atproto.server.createSession
-2. Upload local images              com.atproto.repo.uploadBlob
-3. Create / update article record   com.atproto.repo.createRecord / putRecord
-                                    (collection: com.whtwnd.blog.entry)
-4. Notify WhiteWind                 com.whtwnd.blog.notifyOfNewEntry
-                                    * Currently always fails, but WhiteWind
-                                      auto-detects via firehose
-```
-
-## Self-hosted PDS
-
-Change the `PDS_HOST` constant at the top of `atproto.py`:
-
-```python
-PDS_HOST = "https://your-pds.example.com"
-```
-
 ## License
 
 MIT

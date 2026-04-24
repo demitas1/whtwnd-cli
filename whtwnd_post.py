@@ -276,10 +276,36 @@ def find_rkey_by_title(session: dict, title: str) -> str:
     raise RuntimeError(f"記事が見つかりません: タイトル「{title}」")
 
 
+def _extract_rkey_from_whtwnd_url(url: str, session_handle: str) -> str:
+    """
+    https://whtwnd.com/{handle}/{rkey} 形式の URL から rkey を抽出する。
+    handle が設定と一致しない場合、または URL 形式が不正な場合は RuntimeError を送出する。
+    """
+    prefix = "https://whtwnd.com/"
+    path = url[len(prefix):]
+    parts = path.split("/")
+
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise RuntimeError(
+            f"WhiteWind URL の形式が不正です: {url}\n"
+            f"  正しい形式: https://whtwnd.com/{{handle}}/{{rkey}}"
+        )
+
+    url_handle, rkey = parts
+
+    if url_handle != session_handle:
+        raise RuntimeError(
+            f"URL のハンドル ({url_handle}) が設定のハンドル ({session_handle}) と一致しません。"
+        )
+
+    return rkey
+
+
 def resolve_rkey(session: dict, target: str | None, title: str | None) -> str:
     """
     rkey を解決して返す。
     - target が "at://" 始まりの AT URI ならその末尾を使用
+    - target が "https://whtwnd.com/" 始まりの URL ならハンドル検証の上 rkey を抽出
     - target が rkey 文字列ならそのまま使用
     - title 指定時は listRecords を全件検索してタイトルが一致する rkey を返す
     """
@@ -288,6 +314,8 @@ def resolve_rkey(session: dict, target: str | None, title: str | None) -> str:
     if target:
         if target.startswith("at://"):
             return target.split("/")[-1]
+        if target.startswith("https://whtwnd.com/"):
+            return _extract_rkey_from_whtwnd_url(target, session["handle"])
         return target
     raise RuntimeError("rkey または --title のいずれかを指定してください")
 
@@ -427,6 +455,24 @@ def cmd_update(args):
     print(f"{'='*50}\n")
 
 
+def fetch_entry_title(session: dict, rkey: str) -> str | None:
+    """rkey でレコードを取得してタイトルを返す。取得できない場合は None を返す。"""
+    resp = atproto.api_request(
+        "GET",
+        f"{atproto.PDS_HOST}/xrpc/com.atproto.repo.getRecord",
+        params={
+            "repo": session["did"],
+            "collection": "com.whtwnd.blog.entry",
+            "rkey": rkey,
+        },
+        headers={"Authorization": f"Bearer {session['accessJwt']}"},
+        timeout=15,
+    )
+    if resp.ok:
+        return resp.json().get("value", {}).get("title")
+    return None
+
+
 def cmd_delete(args):
     config = atproto.load_config()
     session = atproto.create_session(config["handle"], config["password"])
@@ -440,7 +486,10 @@ def cmd_delete(args):
 
     # 削除前確認
     if not args.yes:
+        title = fetch_entry_title(session, rkey)
         print(f"以下の記事を削除します:")
+        if title:
+            print(f"  タイトル: {title}")
         print(f"  rkey: {rkey}")
         print(f"  AT URI: at://{session['did']}/com.whtwnd.blog.entry/{rkey}")
         answer = input("削除してよいですか？ [y/N]: ").strip().lower()
@@ -527,7 +576,7 @@ def main():
 
     # update サブコマンド
     p_update = sub.add_parser("update", help="既存記事を更新")
-    p_update.add_argument("target", nargs="?", help="rkey または AT URI（--title 指定時は省略可）")
+    p_update.add_argument("target", nargs="?", help="rkey、AT URI、または WhiteWind URL（--title 指定時は省略可）")
     p_update.add_argument("file", help="更新内容のMarkdownファイルのパス")
     p_update.add_argument("--title", "-t", dest="title", help="更新対象をタイトルで指定")
     p_update.add_argument("--new-title", dest="new_title", help="更新後のタイトル（省略時はMarkdownのH1を使用）")
@@ -543,7 +592,7 @@ def main():
 
     # delete サブコマンド
     p_delete = sub.add_parser("delete", help="記事を削除")
-    p_delete.add_argument("target", nargs="?", help="rkey または AT URI（--title 指定時は省略可）")
+    p_delete.add_argument("target", nargs="?", help="rkey、AT URI、または WhiteWind URL（--title 指定時は省略可）")
     p_delete.add_argument("--title", "-t", help="削除対象をタイトルで指定")
     p_delete.add_argument("--yes", "-y", action="store_true", help="確認プロンプトをスキップ")
     p_delete.set_defaults(func=cmd_delete)

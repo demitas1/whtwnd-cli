@@ -109,6 +109,9 @@ python whtwnd_post.py update 3la5v2sq4s42q new_article.md
 # AT URIで指定して更新
 python whtwnd_post.py update at://did:plc:.../com.whtwnd.blog.entry/3la5v2sq4s42q new_article.md
 
+# WhiteWind の記事 URL で指定して更新
+python whtwnd_post.py update https://whtwnd.com/yourname.bsky.social/3la5v2sq4s42q new_article.md
+
 # タイトルも変更する場合
 python whtwnd_post.py update --title "旧タイトル" new_article.md --new-title "新タイトル"
 ```
@@ -122,8 +125,21 @@ python whtwnd_post.py delete --title "記事タイトル"
 # rkey で指定して削除
 python whtwnd_post.py delete 3la5v2sq4s42q
 
+# WhiteWind の記事 URL で指定して削除
+python whtwnd_post.py delete https://whtwnd.com/yourname.bsky.social/3la5v2sq4s42q
+
 # 確認プロンプトをスキップ
 python whtwnd_post.py delete --title "記事タイトル" --yes
+```
+
+削除前の確認プロンプトでは、タイトル・rkey・AT URI が表示されます:
+
+```
+以下の記事を削除します:
+  タイトル: 私の記事
+  rkey: 3la5v2sq4s42q
+  AT URI: at://did:plc:.../com.whtwnd.blog.entry/3la5v2sq4s42q
+削除してよいですか？ [y/N]:
 ```
 
 ### 記事一覧を確認

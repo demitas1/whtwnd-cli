@@ -1,5 +1,6 @@
 # 認証情報・設定ファイル
 .bsky_config.json
+.secrets
 
 # Python
 __pycache__/

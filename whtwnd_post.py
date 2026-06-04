@@ -430,10 +430,12 @@ def cmd_post(args):
     # 結果表示
     url = entry_url(config["handle"], at_uri, title or md_file.stem)
     status = "下書き" if is_draft else visibility
+    rkey = at_uri.split("/")[-1]
     print(f"\n{'='*50}")
     print(f"✅ 投稿完了!")
     print(f"   タイトル : {title or md_file.stem}")
     print(f"   公開設定 : {status}")
+    print(f"   rkey     : {rkey}")
     print(f"   URL      : {url}")
     print(f"   AT URI   : {at_uri}")
     print(f"{'='*50}\n")

@@ -11,3 +11,6 @@ venv/
 *.egg-info/
 dist/
 build/
+
+# 作業ディレクトリ
+tmp/

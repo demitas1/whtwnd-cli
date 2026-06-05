@@ -209,6 +209,13 @@ def cmd_post(args):
     print(f"{'='*50}\n")
 
 
+def cmd_config(args):
+    config = atproto.load_config()
+    config_path = atproto._LOCAL_CONFIG if atproto._LOCAL_CONFIG.exists() else atproto._HOME_CONFIG
+    print(f"設定ファイル: {config_path.resolve()}")
+    print(f"  handle : {config['handle']}")
+
+
 # ──────────────────────────────────────────────
 # メイン
 # ──────────────────────────────────────────────
@@ -258,6 +265,11 @@ def main():
         help="言語コード（例: ja, en）複数回指定可",
     )
     p_post.set_defaults(func=cmd_post)
+
+    # config サブコマンド
+    p_config = sub.add_parser("config", help="設定を表示")
+    p_config.add_argument("action", choices=["show"], help="show: 現在の設定を表示")
+    p_config.set_defaults(func=cmd_config)
 
     args = parser.parse_args()
     if not args.command:

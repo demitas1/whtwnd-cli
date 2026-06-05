@@ -85,25 +85,29 @@ def _backoff(reason: str, attempt: int, max_retries: int, wait: int | None = Non
 # 設定読み込み
 # ──────────────────────────────────────────────
 
-def load_config() -> dict:
-    """設定ファイルを読み込む。カレントディレクトリを優先し、なければホームを参照する"""
-    config_path = _LOCAL_CONFIG if _LOCAL_CONFIG.exists() else _HOME_CONFIG
-    if not config_path.exists():
-        print("設定ファイルが見つかりません。")
-        print("以下のいずれかに作成してください:")
-        print(f"  {_LOCAL_CONFIG.resolve()}")
-        print(f"  {_HOME_CONFIG}")
-        print("内容:")
+def resolve_config_path(config_path: str | None = None) -> Path:
+    """設定ファイルのパスを解決する。明示指定がなければカレントディレクトリ→ホームの順に探す"""
+    if config_path is not None:
+        return Path(config_path)
+    return _LOCAL_CONFIG if _LOCAL_CONFIG.exists() else _HOME_CONFIG
+
+
+def load_config(config_path: str | None = None) -> dict:
+    """設定ファイルを読み込む"""
+    path = resolve_config_path(config_path)
+    if not path.exists():
+        print(f"設定ファイルが見つかりません: {path.resolve()}")
+        print("以下の形式で作成してください:")
         print(json.dumps(
             {"handle": "yourname.bsky.social", "password": "your-app-password"},
             ensure_ascii=False, indent=2,
         ))
         sys.exit(1)
     try:
-        with open(config_path) as f:
+        with open(path) as f:
             return json.load(f)
     except json.JSONDecodeError as e:
-        print(f"エラー: 設定ファイルのJSON形式が不正です: {config_path}")
+        print(f"エラー: 設定ファイルのJSON形式が不正です: {path}")
         print(f"  詳細: {e}")
         print("以下の形式で修正してください:")
         print(json.dumps(

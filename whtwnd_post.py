@@ -365,7 +365,7 @@ def resolve_rkey(session: dict, target: str | None, title: str | None) -> str:
 
 
 def cmd_post(args):
-    config = atproto.load_config()
+    config = atproto.load_config(args.config)
     session = atproto.create_session(config["handle"], config["password"])
 
     md_file = Path(args.file)
@@ -442,7 +442,7 @@ def cmd_post(args):
 
 
 def cmd_update(args):
-    config = atproto.load_config()
+    config = atproto.load_config(args.config)
     session = atproto.create_session(config["handle"], config["password"])
 
     # rkey の解決
@@ -545,7 +545,7 @@ def fetch_entry_title(session: dict, rkey: str) -> str | None:
 
 
 def cmd_delete(args):
-    config = atproto.load_config()
+    config = atproto.load_config(args.config)
     session = atproto.create_session(config["handle"], config["password"])
 
     # rkey の解決
@@ -590,14 +590,14 @@ def cmd_delete(args):
 
 
 def cmd_list(args):
-    config = atproto.load_config()
+    config = atproto.load_config(args.config)
     session = atproto.create_session(config["handle"], config["password"])
     list_entries(session)
 
 
 def cmd_config(args):
-    config = atproto.load_config()
-    config_path = atproto._LOCAL_CONFIG if atproto._LOCAL_CONFIG.exists() else atproto._HOME_CONFIG
+    config = atproto.load_config(args.config)
+    config_path = atproto.resolve_config_path(args.config)
     print(f"設定ファイル: {config_path.resolve()}")
     print(f"  handle : {config['handle']}")
 
@@ -636,6 +636,7 @@ def main():
   ※ Blueskyの設定 → プライバシーとセキュリティ → アプリパスワード で発行
         """,
     )
+    parser.add_argument("--config", metavar="FILE", help="設定ファイルのパス（デフォルト: ~/.config/whtwnd_cli/.bsky_config.json）")
     sub = parser.add_subparsers(dest="command")
 
     # post サブコマンド

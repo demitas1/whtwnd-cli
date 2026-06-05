@@ -190,7 +190,7 @@ def cmd_post(args):
 
     langs = args.lang if args.lang else None
 
-    config = atproto.load_config()
+    config = atproto.load_config(args.config)
     session = atproto.create_session(config["handle"], config["password"])
 
     print("\n[スキートの投稿]")
@@ -210,8 +210,8 @@ def cmd_post(args):
 
 
 def cmd_config(args):
-    config = atproto.load_config()
-    config_path = atproto._LOCAL_CONFIG if atproto._LOCAL_CONFIG.exists() else atproto._HOME_CONFIG
+    config = atproto.load_config(args.config)
+    config_path = atproto.resolve_config_path(args.config)
     print(f"設定ファイル: {config_path.resolve()}")
     print(f"  handle : {config['handle']}")
 
@@ -247,6 +247,7 @@ def main():
   - #ハッシュタグ       → タグリンク
         """,
     )
+    parser.add_argument("--config", metavar="FILE", help="設定ファイルのパス（デフォルト: ~/.config/whtwnd_cli/.bsky_config.json）")
     sub = parser.add_subparsers(dest="command")
 
     p_post = sub.add_parser("post", help="スキートを投稿")
